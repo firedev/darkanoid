@@ -1,16 +1,16 @@
 pico-8 cartridge // http://www.pico-8.com
 version 21
 __lua__
--- batanoid
--- nikolay x
+-- bat-8
+-- firedev.com
 
 pal(2,138,1)
 
 function _init()
+	game=init_game('welcome')
 	bat=init_bat()
 	ball=init_ball()
 	level=init_level()
-	game=init_game('welcome')
 end
 
 function _update60()
@@ -39,6 +39,23 @@ function init_game(initial_state)
 		draw = function(self)
 			self.state.draw()
 		end,
+		game_objects={},
+		create_game_object=function(self, id, x, y, width, height, props) 
+			local game_object = { 
+				id = id,
+				x=x,
+				y=y,
+				width=width,
+				height=height,
+				draw_bounding_box = function(self) 
+					rect(self.x, self.y, self.x+self.width, self.y+self.height)
+				end
+			}
+			for k, v in pairs(props) do
+				game_object[k] = v
+			end
+			add(self.game_objects,game_object)
+		end,
 	}
 	game.states = init_states(game)
 	game:to_state(initial_state)
@@ -53,7 +70,10 @@ function init_states(game)
 			ball:update()
 		end,
 		draw = function()
-			level:draw()
+			for object in all(game.game_objects) do
+				object:draw()
+				object:draw_bounding_box()
+			end
 			bat:draw()
 			ball:draw()
 		end
@@ -72,7 +92,7 @@ function init_states(game)
 			print ("press ❎ to start",30,72)
 		end
 	}
-
+	
 	local states =  { 
 		welcome = welcome,
 		running = running,
@@ -91,32 +111,37 @@ end
 
 function interact_with_bat(newx,newy)
 	if (
-		newx < (bat.x + bat.w/2 + 4) and
-		newx > (bat.x - bat.w/2 - 4) and
-		newy > (bat.y)
-	) then
-		sfx(0)
-		ball.y_sp=abs(ball.y_sp) * -1.05
-		ball.x_sp+=(newx - bat.x) / bat.w
-		ball.y_sp=mid(-ball.mx_sp, ball.y_sp, -0.5)
-		ball.y=mid(0, newy, bat.y)
-	end
+	newx < (bat.x + bat.w/2 + 4) and
+	newx > (bat.x - bat.w/2 - 4) and
+	newy > (bat.y)
+) then
+	sfx(0)
+	ball.y_sp=abs(ball.y_sp) * -1.05
+	ball.x_sp+=(newx - bat.x) / bat.w
+	ball.y_sp=mid(-ball.mx_sp, ball.y_sp, -0.5)
+	ball.y=mid(0, newy, bat.y)
+end
+end
+
+function is_hit(object,point)
+	return object.x<=point.x and (object.x+object.width)>=point.x
+	and object.y<=point.y and (object.y+object.height)>=point.y
 end
 
 function interact_with_map(newx,newy)
-  local mapx=flr((newx-level.offset.x)/8)
+	local mapx=flr((newx-level.offset.x)/8)
 	local mapy=flr((newy-level.offset.y)/8)
-	local screenx=mapx*8+level.offset.x+4
-	local screeny=mapy*8+level.offset.y+4
-	for block in all(level.blocks) do
-		if (not block.dead and (block.x == mapx) and (block.y == mapy)) then
+	for block in all(game.game_objects) do
+		-- if (not block.dead and (block.x == mapx) and (block.y == mapy)) then
+		if not block.dead and is_hit(block, { x=newx, y=newy }) then
+			sfx(1)
 			block.dead = true
-			if(ball.x<screenx-4) block.sprite = 48
-			if(ball.x>screenx+4) block.sprite = 49
-			if(ball.y<screeny-4) block.sprite = 50
-			if(ball.y>screeny+4) block.sprite = 51
-			if(ball.x<screenx-4 or ball.x>screenx+4) ball.x_sp*=-1
-			if(ball.y<screeny-4 or ball.y>screeny+4) ball.y_sp*=-1
+			if(ball.x<block.x) block.sprite = 48
+			if(ball.x>(block.x+block.width)) block.sprite = 49
+			if(ball.y<block.y) block.sprite = 50
+			if(ball.y>(block.y+block.width)) block.sprite = 51
+			if(ball.x<block.x or ball.x>(block.x+block.height)) ball.x_sp*=-1
+			if(ball.y<block.y or ball.y>(block.y+block.width)) ball.y_sp*=-1
 		end
 	end
 end
@@ -126,38 +151,37 @@ end
 function init_level()
 	local level = {
 		current = 0,
-		blocks={},
 		offset={
 			x=4,
 			y=0,
 		},
-		draw = function(self)
-			for block in all(self.blocks) do
-				spr(
-					block.sprite,
-					self.offset.x+block.x*8,
-					self.offset.y+block.y*8
-				)
-			end
-		end,
+		
 		load = function(self,num) 
 			self.current=num
-			for x=0,14 do
-				for y=0,11 do
-					local sprite = mget((self.current-1)*16+x,y)
+			for mapx=0,14 do
+				for mapy=0,11 do
+					local sprite = mget((self.current-1)*16+mapx,mapy)
 					if sprite != 0 then 
-						self.blocks[#self.blocks+1]={
+						game:create_game_object("block", self.offset.x+mapx*8, self.offset.y+mapy*8, 8, 8, {
 							sprite = sprite,
-							x = x,
-							y = y,
-						}
-					end
+							mapx = x,
+							mapy = y,
+							draw = function(self)
+								spr(
+								self.sprite,
+								self.x,
+								self.y
+							)
+						end,
+					})
 				end
 			end
 		end
-	}
-	level:load(2)
-	return level
+		
+	end
+}
+level:load(2)
+return level
 end
 
 -->8
@@ -231,14 +255,14 @@ function init_ball()
 end
 
 __gfx__
-0000000000775777777777777775770000000000088888000eeeee000ccccc0002222200099999000ddddd000000000000000000000000000000000000000000
-0000000007667676666666666767667000000000887e8880ee7feee0cc77ccc0227a2220997a9990dd76ddd00000000000000000000000000000000000000000
-00700700767767777777777777767767000000008e888880efeeeee0c7ccccc02a2222209a999990d6ddddd00000000000000000000000000000000000000000
-000770007777677777777777777677770000000088888880eeeeeee0ccccccc02222222099999990ddddddd00000000000000000000000000000000000000000
-000770006777d77777777777777d77760000000088888880eeeeeee0ccccccc02222222099999990ddddddd00000000000000000000000000000000000000000
-007007006676d67777777777776d67660000000088888880eeeeeee0ccccccc02222222099999990ddddddd00000000000000000000000000000000000000000
-00000000056d5d666666666666d5d65000000000088888000eeeee000ccccc0002222200099999000ddddd000000000000000000000000000000000000000000
-00000000005515555555555555515500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+000000000077577777777777777577000000000088888884eeeeeee8ccccccc12222222b99999994ddddddd50000000000000000000000000000000000000000
+000000000766767666666666676766700000000087ee8884e77feee8c766ccc1277a222b977a9994d776ddd50000000000000000000000000000000000000000
+00700700767767777777777777767767000000008e888884efeeeee8c6ccccc12a22222b9a999994d6ddddd50000000000000000000000000000000000000000
+000770007777677777777777777677770000000088888884eeeeeee8ccccccc12222222b99999994ddddddd50000000000000000000000000000000000000000
+000770006777d77777777777777d77760000000088888884eeeeeee8ccccccc12222222b99999994ddddddd50000000000000000000000000000000000000000
+007007006676d67777777777776d67660000000088888884eeeeeee8ccccccc12222222b99999994ddddddd50000000000000000000000000000000000000000
+00000000056d5d666666666666d5d6500000000088888884eeeeeee8ccccccc12222222b99999994ddddddd50000000000000000000000000000000000000000
+0000000000551555555555555551550000000000444444448888888811111111bbbbbbbb44444444555555550000000000000000000000000000000000000000
 00000000000100000000000000000000000000000000000077777770000000000000000077777770000000000000000000000000000000000000000000000000
 00000000001410000011100000000000000000000000077777707777770000000000077770000077770000000000000000000000000000000000000000000000
 000aa900014941000114110000000000000000000007777777707777777700000007770000777000077700000000000000000000000000000000000000000000
