@@ -4,14 +4,13 @@ __lua__
 -- bat-8
 -- firedev.com
 
-
 DEBUG=false
 
 function _init()
 	game=init_game('welcome')
-	init_bat()
-	init_level()
-	ball=init_ball()
+	init_bat(game)
+	init_level(game)
+	init_ball(game)
 end
 
 function _update60()
@@ -29,16 +28,15 @@ function init_game(initial_state)
 	local game = {
 		lives=3,
 		level=1,
+		states = init_states(),
 		to_state = function(self, state)
-			local state = self.states[state]
-			state.update()
-			self.state = state
+			self.state = self.states[state]
 		end,
 		update = function(self)
-			self.state.update()
+			self.state.update(self)
 		end,
 		draw = function(self)
-			self.state.draw()
+			self.state.draw(self)
 		end,
 		game_objects={},
 		create_game_object=function(self, id, x, y, width, height, props) 
@@ -60,59 +58,53 @@ function init_game(initial_state)
 			end
 			add(self.game_objects,game_object)
 		end,
+		
 	}
-	game.states = init_states(game)
 	game:to_state(initial_state)
 	return game
 end
 
 
-function init_states(game)
-	local running = {
-		update = function()
-			ball:update()
-			for object in all(game.game_objects) do
-				object:update()
-			end
-		end,
-		draw = function()
-			for object in all(game.game_objects) do
-				object:draw()
-				object:draw_bounding_box()
-			end
-			ball:draw()
-		end
-	}
-	local welcome = {
-		update = function()
-			if(btn(❎)) game:to_state("running")
-		end,
-		draw = function()
-			for x=0,7 do
-				for y=0,1 do
-					spr(64+x+y*16,29+x*8,40+y*8)
+function init_states()
+	return  { 
+		running = {
+			update = function(game)
+				for object in all(game.game_objects) do
+					object:update()
+				end
+			end,
+			draw = function(game)
+				for object in all(game.game_objects) do
+					object:draw()
+					object:draw_bounding_box()
 				end
 			end
-			rect(0,0,127,127,7)
-			print ("press ❎ to start",30,72)
-		end
+		},
+		welcome = {
+			update = function(game)
+				if(btn(❎)) game:to_state("running")
+			end,
+			draw = function()
+				for x=0,7 do
+					for y=0,1 do
+						spr(64+x+y*16,29+x*8,40+y*8)
+					end
+				end
+				rect(0,0,127,127,7)
+				print ("press ❎ to start",30,72)
+			end
+		}
 	}
-	
-	local states =  { 
-		welcome = welcome,
-		running = running,
-	}
-	return states
 end
 
 -->8
 -- states
-function interact_with_bat(bat, newx,newy)
+function interact_with_bat(bat, ball)
 	sfx(0)
 	ball.y_sp=abs(ball.y_sp) * -1.05
-	ball.x_sp+=(newx - (bat.x+bat.width/2)) / bat.width
+	ball.x_sp+=(ball.newx - (bat.x+bat.width/2)) / bat.width
 	ball.y_sp=mid(-ball.mx_sp, ball.y_sp, -0.5)
-	ball.y=mid(0, newy, bat.y)
+	ball.y=mid(0, ball.newy, bat.y)
 end
 
 function is_hit(object,point)
@@ -120,22 +112,22 @@ function is_hit(object,point)
 	and object.y<=point.y and (object.y+object.height)>=point.y
 end
 
-function interact(newx,newy)
+function interact(ball)
 	for object in all(game.game_objects) do
 		if (not object.inactive) then
-			if is_hit(object, {x=newx, y=newy}) then
+			if is_hit(object, ball) then
 				if object.id == 'bat' then
-					interact_with_bat(object, newx, newy)
+					interact_with_bat(object, ball)
 				elseif object.id == 'block' then
-					if(ball.x<object.x or ball.x>(object.x+object.height)) ball.x_sp*=-1
-					if(ball.y<object.y or ball.y>(object.y+object.width)) ball.y_sp*=-1
+					if(ball.x<=object.x+1 or ball.x>=(object.x+object.width-1)) ball.x_sp*=-1
+					if(ball.y<=object.y+1 or ball.y>=(object.y+object.height-1)) ball.y_sp*=-1
 					sfx(0)
 					object.inactive = true
 					if DEBUG then
-						if(ball.x<object.x) object.sprite = 48
-						if(ball.x>(object.x+object.width)) object.sprite = 49
-						if(ball.y<object.y) object.sprite = 50
-						if(ball.y>(object.y+object.width)) object.sprite = 51
+						if(ball.x<=object.x+1) object.sprite = 48
+						if(ball.x>=(object.x+object.width-1)) object.sprite = 49
+						if(ball.y<=object.y+1) object.sprite = 50
+						if(ball.y>=(object.y+object.height-1)) object.sprite = 51
 					end
 				end
 			end
@@ -145,14 +137,13 @@ end
 
 -->8
 -- level
-function init_level()
+function init_level(game)
 	local level = {
 		current = 0,
 		offset={
 			x=4,
 			y=0,
 		},
-		
 		load = function(self,num) 
 			self.current=num
 			for mapx=0,14 do
@@ -166,25 +157,25 @@ function init_level()
 							draw = function(self)
 								if DEBUG or not self.inactive then
 									spr(
-									self.sprite,
-									self.x,
-									self.y
-								)
-							end
-						end,
-					})
+										self.sprite,
+										self.x,
+										self.y
+									)
+								end
+							end,
+						})
+					end
 				end
 			end
 		end
-	end
-}
-level:load(1)
-return level
+	}
+	level:load(game.level)
+	return level
 end
 
 -->8
 -- bat
-function init_bat()
+function init_bat(game)
 	game:create_game_object('bat', 64, 120, 24,8, {
 		l=1, -- left sprite
 		m=2, -- mid sprite
@@ -219,29 +210,26 @@ end
 
 -->8
 -- ball
-function init_ball()
-	local ball={
-		x=25, -- x
-		y=64, -- y
+function init_ball(game)
+	game:create_game_object('ball', 64,100,0,0,{
 		x_sp=1, -- x speed
 		y_sp=1, -- y speed
 		mx_sp=2, -- max speed
 		update=function(self)
-			newx=self.x+self.x_sp
-			newy=self.y+self.y_sp
-			interact(newx,newy)
-			if(newx>124 or newx<4) self.x_sp*=-1
-			if(newy<4 or newy > 124) self.y_sp*=-1
-			self.x=newx
-			self.y=newy
+			self.newx=self.x+self.x_sp
+			self.newy=self.y+self.y_sp
+			interact(self)
+			if(self.newx>126 or self.newx<2) self.x_sp*=-1
+			if(self.newy<2 or self.newy>124) self.y_sp*=-1
+			self.x=self.newx
+			self.y=self.newy
 			self.x_sp=mid(-self.mx_sp,self.x_sp,self.mx_sp)
 			self.y_sp=mid(-self.mx_sp,self.y_sp,self.mx_sp)
 		end,
 		draw=function(self)
 			spr(16,self.x-4,self.y-4)
 		end
-	}
-	return ball
+	})
 end
 
 __gfx__
