@@ -4,13 +4,14 @@ __lua__
 -- bat-8
 -- firedev.com
 
-pal(2,138,1)
+
+DEBUG=false
 
 function _init()
 	game=init_game('welcome')
-	bat=init_bat()
+	init_bat()
+	init_level()
 	ball=init_ball()
-	level=init_level()
 end
 
 function _update60()
@@ -47,8 +48,11 @@ function init_game(initial_state)
 				y=y,
 				width=width,
 				height=height,
+				inactive=false,
+				update = function(self)
+				end,
 				draw_bounding_box = function(self) 
-					rect(self.x, self.y, self.x+self.width, self.y+self.height)
+					if DEBUG then rect(self.x, self.y, self.x+self.width, self.y+self.height) end
 				end
 			}
 			for k, v in pairs(props) do
@@ -66,15 +70,16 @@ end
 function init_states(game)
 	local running = {
 		update = function()
-			bat:update()
 			ball:update()
+			for object in all(game.game_objects) do
+				object:update()
+			end
 		end,
 		draw = function()
 			for object in all(game.game_objects) do
 				object:draw()
 				object:draw_bounding_box()
 			end
-			bat:draw()
 			ball:draw()
 		end
 	}
@@ -102,25 +107,12 @@ end
 
 -->8
 -- states
-
-function interact(newx,newy)
-	interact_with_map(newx,newy)
-	interact_with_bat(newx,newy)
-	-- if (newy > 128) _init()
-end
-
-function interact_with_bat(newx,newy)
-	if (
-	newx < (bat.x + bat.w/2 + 4) and
-	newx > (bat.x - bat.w/2 - 4) and
-	newy > (bat.y)
-) then
+function interact_with_bat(bat, newx,newy)
 	sfx(0)
 	ball.y_sp=abs(ball.y_sp) * -1.05
-	ball.x_sp+=(newx - bat.x) / bat.w
+	ball.x_sp+=(newx - (bat.x+bat.width/2)) / bat.width
 	ball.y_sp=mid(-ball.mx_sp, ball.y_sp, -0.5)
 	ball.y=mid(0, newy, bat.y)
-end
 end
 
 function is_hit(object,point)
@@ -128,20 +120,25 @@ function is_hit(object,point)
 	and object.y<=point.y and (object.y+object.height)>=point.y
 end
 
-function interact_with_map(newx,newy)
-	local mapx=flr((newx-level.offset.x)/8)
-	local mapy=flr((newy-level.offset.y)/8)
-	for block in all(game.game_objects) do
-		-- if (not block.dead and (block.x == mapx) and (block.y == mapy)) then
-		if not block.dead and is_hit(block, { x=newx, y=newy }) then
-			sfx(1)
-			block.dead = true
-			if(ball.x<block.x) block.sprite = 48
-			if(ball.x>(block.x+block.width)) block.sprite = 49
-			if(ball.y<block.y) block.sprite = 50
-			if(ball.y>(block.y+block.width)) block.sprite = 51
-			if(ball.x<block.x or ball.x>(block.x+block.height)) ball.x_sp*=-1
-			if(ball.y<block.y or ball.y>(block.y+block.width)) ball.y_sp*=-1
+function interact(newx,newy)
+	for object in all(game.game_objects) do
+		if (not object.inactive) then
+			if is_hit(object, {x=newx, y=newy}) then
+				if object.id == 'bat' then
+					interact_with_bat(object, newx, newy)
+				elseif object.id == 'block' then
+					if(ball.x<object.x or ball.x>(object.x+object.height)) ball.x_sp*=-1
+					if(ball.y<object.y or ball.y>(object.y+object.width)) ball.y_sp*=-1
+					sfx(0)
+					object.inactive = true
+					if DEBUG then
+						if(ball.x<object.x) object.sprite = 48
+						if(ball.x>(object.x+object.width)) object.sprite = 49
+						if(ball.y<object.y) object.sprite = 50
+						if(ball.y>(object.y+object.width)) object.sprite = 51
+					end
+				end
+			end
 		end
 	end
 end
@@ -167,30 +164,28 @@ function init_level()
 							mapx = x,
 							mapy = y,
 							draw = function(self)
-								spr(
-								self.sprite,
-								self.x,
-								self.y
-							)
+								if DEBUG or not self.inactive then
+									spr(
+									self.sprite,
+									self.x,
+									self.y
+								)
+							end
 						end,
 					})
 				end
 			end
 		end
-		
 	end
 }
-level:load(2)
+level:load(1)
 return level
 end
 
 -->8
 -- bat
 function init_bat()
-	local bat={
-		x=64, -- x
-		y=120, -- y
-		w=24, -- width
+	game:create_game_object('bat', 64, 120, 24,8, {
 		l=1, -- left sprite
 		m=2, -- mid sprite
 		r=3, -- rightsprite
@@ -206,25 +201,20 @@ function init_bat()
 			end
 			self.sp=mid(-self.mx_sp,self.sp,self.mx_sp)
 			local x=self.x+self.sp
-			self.x=mid(self.w/2, x, 128-self.w/2)
+			self.x=mid(0, x, 128-self.width)
 		end,
 		draw=function(self)
-			local x=self.x-4
-			local y=self.y
-			local m=flr((self.w-8)/8)
-			--print(self.w)
-			--print(m)
+			local m=ceil((self.width-16)/8)
 			for n=1,m do
-				spr(self.m, self.x-m*4+(n-1)*8, y)
+				spr(self.m, self.x+n*8, self.y)
 			end
-			spr(self.l, self.x-self.w/2,self.y)
-			spr(self.r, self.x+self.w/2-8,self.y)
+			spr(self.l, self.x,self.y)
+			spr(self.r, self.x+self.width-8,self.y)
 			for n=1,game.lives do
 				spr(33, n*6, 0)
 			end
 		end
-	}
-	return bat
+	})
 end
 
 -->8
@@ -255,14 +245,14 @@ function init_ball()
 end
 
 __gfx__
-000000000077577777777777777577000000000088888884eeeeeee8ccccccc12222222b99999994ddddddd50000000000000000000000000000000000000000
-000000000766767666666666676766700000000087ee8884e77feee8c766ccc1277a222b977a9994d776ddd50000000000000000000000000000000000000000
-00700700767767777777777777767767000000008e888884efeeeee8c6ccccc12a22222b9a999994d6ddddd50000000000000000000000000000000000000000
-000770007777677777777777777677770000000088888884eeeeeee8ccccccc12222222b99999994ddddddd50000000000000000000000000000000000000000
-000770006777d77777777777777d77760000000088888884eeeeeee8ccccccc12222222b99999994ddddddd50000000000000000000000000000000000000000
-007007006676d67777777777776d67660000000088888884eeeeeee8ccccccc12222222b99999994ddddddd50000000000000000000000000000000000000000
-00000000056d5d666666666666d5d6500000000088888884eeeeeee8ccccccc12222222b99999994ddddddd50000000000000000000000000000000000000000
-0000000000551555555555555551550000000000444444448888888811111111bbbbbbbb44444444555555550000000000000000000000000000000000000000
+000000000077577777777777777577000000000088888882eeeeeee8ccccccc1bbbbbbb399999994ddddddd50000000000000000000000000000000000000000
+000000000766767666666666676766700000000087ee8882e77feee8c766ccc1b77abbb3977a9994d776ddd50000000000000000000000000000000000000000
+00700700767767777777777777767767000000008e888882efeeeee8c6ccccc1babbbbb39a999994d6ddddd50000000000000000000000000000000000000000
+000770007777677777777777777677770000000088888882eeeeeee8ccccccc1bbbbbbb399999994ddddddd50000000000000000000000000000000000000000
+000770006777d77777777777777d77760000000088888882eeeeeee8ccccccc1bbbbbbb399999994ddddddd50000000000000000000000000000000000000000
+007007006676d67777777777776d67660000000088888882eeeeeee8ccccccc1bbbbbbb399999994ddddddd50000000000000000000000000000000000000000
+00000000056d5d666666666666d5d6500000000088888882eeeeeee8ccccccc1bbbbbbb399999994ddddddd50000000000000000000000000000000000000000
+00000000005515555555555555515500000000002222222288888888111111113333333344444444555555550000000000000000000000000000000000000000
 00000000000100000000000000000000000000000000000077777770000000000000000077777770000000000000000000000000000000000000000000000000
 00000000001410000011100000000000000000000000077777707777770000000000077770000077770000000000000000000000000000000000000000000000
 000aa900014941000114110000000000000000000007777777707777777700000007770000777000077700000000000000000000000000000000000000000000
