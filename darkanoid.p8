@@ -8,9 +8,6 @@ DEBUG=false
 
 function _init()
 	game=init_game('welcome')
-	init_bat(game)
-	init_level(game)
-	init_ball(game)
 end
 
 function _update60()
@@ -18,7 +15,6 @@ function _update60()
 end
 
 function _draw()
-	cls()
 	game:draw()
 end
 
@@ -26,11 +22,20 @@ end
 -- game state
 function init_game(initial_state)
 	local game = {
-		lives=3,
-		level=1,
+		lives=0,
+		level=0,
+		game_objects={},
 		states = init_states(),
 		to_state = function(self, state)
 			self.state = self.states[state]
+		end,
+		reset = function(self)
+			self.game_objects={}
+			self.lives = 3
+			self.level = 1
+			init_bat(self)
+			init_ball(self)
+			init_level(self)
 		end,
 		update = function(self)
 			self.state.update(self)
@@ -38,9 +43,8 @@ function init_game(initial_state)
 		draw = function(self)
 			self.state.draw(self)
 		end,
-		game_objects={},
-		create_game_object=function(self, id, x, y, width, height, props) 
-			local game_object = { 
+		create_game_object=function(self, id, x, y, width, height, props)
+			local game_object = {
 				id = id,
 				x=x,
 				y=y,
@@ -49,7 +53,7 @@ function init_game(initial_state)
 				inactive=false,
 				update = function(self)
 				end,
-				draw_bounding_box = function(self) 
+				draw_bounding_box = function(self)
 					if DEBUG then rect(self.x, self.y, self.x+self.width, self.y+self.height) end
 				end
 			}
@@ -57,16 +61,17 @@ function init_game(initial_state)
 				game_object[k] = v
 			end
 			add(self.game_objects,game_object)
+			return game_object
 		end,
-		
+
 	}
+	game:reset()
 	game:to_state(initial_state)
 	return game
 end
 
-
 function init_states()
-	return  { 
+	return {
 		running = {
 			update = function(game)
 				for object in all(game.game_objects) do
@@ -74,29 +79,62 @@ function init_states()
 				end
 			end,
 			draw = function(game)
+				cls(1)
 				for object in all(game.game_objects) do
 					object:draw()
 					object:draw_bounding_box()
+				end
+				for n=1,game.lives do
+					spr(33, n*6, 0)
 				end
 			end
 		},
 		welcome = {
 			update = function(game)
 				if(btn(❎)) then
-				 pal(1,140,1)
-				 pal(2,136,1)
+				 -- pal(1,140,1)
+				 -- pal(2,136,1)
+				 cls()
 				 game:to_state("running")
 				end
 			end,
 			draw = function()
+				cls()
 				for x=0,9 do
 					for y=0,1 do
 						spr(64+x+y*16,24+x*8,40+y*8)
 					end
 				end
 				rect(0,0,127,127,7)
-				print ("press ❎ to start",31,72)
+				print ("press ❎ to start",31,72, 6)
 			end
+		},
+		lifelost = {
+			update = function(game)
+				game.lives-=1
+				if game.lives < 0 then
+					game:to_state('gameover')
+				else
+					game.ball:reset()
+					game:to_state('running')
+				end
+			end,
+			draw = function(game)
+			end
+		},
+		gameover = {
+			update = function(game)
+				if(btn(❎)) then
+					game:reset()
+					game:to_state("welcome")
+				end
+			end,
+			draw = function()
+				rectfill(0,60,128,80,5)
+				print ("game over", 50, 65, 7)
+				print ("press ❎ to continue",27,72, 6)
+			end
+
 		}
 	}
 end
@@ -104,16 +142,15 @@ end
 -->8
 -- states
 function interact_with_bat(bat, ball)
-	sfx(0)
 	ball.y_sp=abs(ball.y_sp) * -1.05
-	ball.x_sp+=(ball.newx - (bat.x+bat.width/2)) / bat.width
+	ball.x_sp+=(ball.x - (bat.x+bat.width/2)) / bat.width
 	ball.y_sp=mid(-ball.mx_sp, ball.y_sp, -0.5)
-	ball.newy=mid(0, ball.newy, bat.y)
+	ball.y=mid(0, ball.y, bat.y)
 end
 
 function is_hit(object,point)
-	return object.x<=point.newx and (object.x+object.width)>=point.newx
-	and object.y<=point.newy and (object.y+object.height)>=point.newy
+	return object.x<=point.x+point.x_sp and (object.x+object.width)>=point.x+point.x_sp
+	and object.y<=point.y+point.y_sp and (object.y+object.height)>=point.y+point.y_sp
 end
 
 function interact(ball)
@@ -121,11 +158,20 @@ function interact(ball)
 		if (not object.inactive) then
 			if is_hit(object, ball) then
 				if object.id == 'bat' then
+					sfx(0)
 					interact_with_bat(object, ball)
 				elseif object.id == 'block' then
-					if(ball.x<=object.x or ball.x>=(object.x+object.width)) ball.x_sp*=-1
-					if(ball.y<=object.y or ball.y>=(object.y+object.height)) ball.y_sp*=-1
-					sfx(0)
+					sfx(2)
+					-- if(ball.y<=object.y or ball.y>=(object.y+object.height)) then
+					--	ball.y_sp*=-1
+					-- elseif(ball.x<=object.x or ball.x>=(object.x+object.width)) then
+					--	ball.x_sp*=-1
+					-- end
+					if deflx_ballbox(ball.x,ball.y,ball.x_sp,ball.y_sp,object.x,object.y,object.width,object.height) then
+						ball.x_sp*= -1
+					else
+						ball.y_sp*= -1
+					end
 					object.inactive = true
 					if DEBUG then
 						if(ball.x<=object.x+2) object.sprite = 48
@@ -148,12 +194,12 @@ function init_level(game)
 			x=4,
 			y=0,
 		},
-		load = function(self,num) 
+		load = function(self,num)
 			self.current=num
 			for mapx=0,14 do
 				for mapy=0,11 do
 					local sprite = mget((self.current-1)*16+mapx,mapy)
-					if sprite != 0 then 
+					if sprite != 0 then
 						game:create_game_object("block", self.offset.x+mapx*8, self.offset.y+mapy*8, 8, 8, {
 							sprite = sprite,
 							mapx = x,
@@ -188,15 +234,11 @@ function init_bat(game)
 		mx_sp=3, -- max speed
 		update=function(self)
 			if(btn(⬅️)) then
-				self.sp=-self.mx_sp
+				self.x-=self.mx_sp
 			elseif(btn(➡️)) then
-				self.sp+=self.mx_sp
-			else
-				self.sp*=0.5
+				self.x+=self.mx_sp
 			end
-			self.sp=mid(-self.mx_sp,self.sp,self.mx_sp)
-			local x=self.x+self.sp
-			self.x=mid(0, x, 128-self.width)
+			self.x=mid(0, self.x, 128-self.width)
 		end,
 		draw=function(self)
 			local m=ceil((self.width-16)/8)
@@ -205,9 +247,6 @@ function init_bat(game)
 			end
 			spr(self.l, self.x,self.y)
 			spr(self.r, self.x+self.width-8,self.y)
-			for n=1,game.lives do
-				spr(33, n*6, 0)
-			end
 		end
 	})
 end
@@ -215,25 +254,63 @@ end
 -->8
 -- ball
 function init_ball(game)
-	game:create_game_object('ball', 64,100,0,0,{
-		x_sp=1, -- x speed
-		y_sp=1, -- y speed
+	ball = game:create_game_object('ball', 0,0,0,0,{
+		x_sp=0, -- x speed
+		y_sp=0, -- y speed
 		mx_sp=2, -- max speed
 		update=function(self)
-			self.newx=self.x+self.x_sp
-			self.newy=self.y+self.y_sp
 			interact(self)
-			if(self.newx>126 or self.newx<2) self.x_sp*=-1
-			if(self.newy<2 or self.newy>124) self.y_sp*=-1
-			self.x=self.newx
-			self.y=self.newy
+			self.x=self.x+self.x_sp
+			self.y=self.y+self.y_sp
+			if(self.x>126 or self.x<2) self.x_sp*=-1
+			if(self.y<2) self.y_sp*=-1
+			if(self.y>130) then
+				sfx(1)
+				game:to_state('lifelost')
+			end
 			self.x_sp=mid(-self.mx_sp,self.x_sp,self.mx_sp)
 			self.y_sp=mid(-self.mx_sp,self.y_sp,self.mx_sp)
 		end,
 		draw=function(self)
 			spr(16,self.x-4,self.y-4)
-		end
+		end,
+		reset=function(self)
+			self.x_sp = 1
+			self.y_sp = 1
+			self.x = 64
+			self.y = 64
+		end,
 	})
+	ball:reset()
+	game.ball = ball
+end
+
+-->8
+-- deflx_ballbox
+function deflx_ballbox(bx, by, bdx, bdy, tx, ty, tw, th)
+	local slp = bdy / bdx
+	local cx, cy
+	if bdx == 0 then
+		return false
+	elseif bdy == 0 then
+		return true
+	elseif slp > 0 and bdx > 0 then
+		cx = tx - bx
+		cy = ty - by
+		return cx > 0 and cy/cx < slp
+	elseif slp < 0 and bdx > 0 then
+		cx = tx - bx
+		cy = ty + th - by
+		return cx > 0 and cy/cx >= slp
+	elseif slp > 0 and bdx < 0 then
+		cx = tx + tw - bx
+		cy = ty + th - by
+		return cx < 0 and cy/cx <= slp
+	else
+		cx = tx + tw - bx
+		cy = ty - by
+		return cx < 0 and cy/cx >= slp
+	end
 end
 
 __gfx__
@@ -441,3 +518,5 @@ __map__
 0000505152535455565700000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 __sfx__
 000100000875000700007000070000700007000070000700007000070000700007000070000700007000070000700007000070000700007000070000700007000070000700007000070000700007000070000700
+000300001b3501a35018350163501535013350103500d3500a3500635001350003000030000300003000030000300003000030000300003000030000300003000030000300003000030000300003000030000300
+000100001d5501d500005000050000500005000050000500005000050000500005000050000500005000050000500005000050000500005000050000500005000050000500005000050000500005000050000500
